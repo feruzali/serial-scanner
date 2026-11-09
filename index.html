@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Serial Scanner Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: camera viewfinder on top with a wide guide box, last result under it, running list below. */
+:root{
+  --bg:#f3f5f8; --panel:#ffffff; --fg:#17202b; --muted:#5d6876; --line:#d9dfe7;
+  --accent:#1f56c7; --accent-fg:#ffffff; --ok:#167a43; --ok-bg:#e3f4ea; --warn:#9a5b00; --warn-bg:#fff1d9; --bad:#b42318;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12161c; --panel:#1b2129; --fg:#e7ebf0; --muted:#97a2b0; --line:#2c3440;
+  --accent:#5b8cf0; --accent-fg:#0d1320; --ok:#5ccb8b; --ok-bg:#16301f; --warn:#f0b54c; --warn-bg:#33270f; --bad:#f2786d; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+[hidden]{display:none!important}
+.wrap{max-width:560px;margin:0 auto;padding-block:14px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:14px}
+h1{font-size:20px;font-weight:600;margin:0}
+.sub{color:var(--muted);margin:2px 0 0;font-size:14px}
+.btn{font:inherit;font-weight:600;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);padding:12px 14px;cursor:pointer;text-align:center}
+.btn:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:18px;padding:16px 14px}
+.btn.small{padding:8px 12px;font-size:14px;font-weight:500}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row > *{flex:1 1 130px}
+.viewer{position:relative;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:4/3;max-width:100%}
+.viewer video{width:100%;height:100%;object-fit:cover;display:block}
+.guide{position:absolute;left:7%;right:7%;top:30%;bottom:30%;border:3px solid rgba(255,255,255,.9);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.35);transition:border-color .15s}
+.guide.hit{border-color:#45d483}
+.hint{position:absolute;left:0;right:0;bottom:8px;text-align:center;color:#fff;font-size:13px;text-shadow:0 1px 3px #000}
+.flash{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:#167a43;color:#fff;font-family:var(--f-mono);font-weight:600;font-size:20px;padding:6px 14px;border-radius:999px;white-space:nowrap}
+.flash.dup{background:#7a5a16}
+.status{border-radius:10px;padding:10px 14px;border:1px solid var(--line);background:var(--panel);font-size:14px}
+.status.ok{background:var(--ok-bg);border-color:transparent}
+.status.warn{background:var(--warn-bg);border-color:transparent}
+.status b.big{font-family:var(--f-mono);font-size:20px;letter-spacing:.04em}
+.manual{display:flex;gap:8px}
+.manual input{flex:1;min-width:0;font:inherit;font-family:var(--f-mono);text-transform:uppercase;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.manual input::placeholder{text-transform:none;font-family:var(--f-body)}
+.listhead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.count{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+ol{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+#list li{display:grid;grid-template-columns:2.6em 1fr auto;align-items:center;gap:8px;padding:9px 12px;border-top:1px solid var(--line)}
+#list li:first-child{border-top:0}
+#list li.fresh{background:var(--ok-bg)}
+#list .n{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13px}
+#list .s{font-family:var(--f-mono);font-weight:600;letter-spacing:.03em;min-width:0;overflow-wrap:anywhere}
+#list .t{display:block;font-family:var(--f-body);font-weight:400;color:var(--muted);font-size:12px;letter-spacing:0}
+#list li.empty{display:block;padding:20px 14px;color:var(--muted);text-align:center}
+.del{font:inherit;font-size:13px;border:0;background:none;color:var(--muted);cursor:pointer;padding:6px}
+.del:hover{color:var(--bad)}
+.tips{color:var(--muted);font-size:13px;margin:0;padding-left:18px}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
+textarea{width:100%;height:120px;font-family:var(--f-mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Serial Scanner Live</h1>
+    <p class="sub">Point the camera at each laptop label. Only the serial number is kept, from the Serial barcode or the eSupport QR code.</p>
+  </header>
+
+  <button class="btn primary" id="start" type="button">Start camera</button>
+  <div class="viewer" id="viewer" hidden>
+    <video id="video" playsinline muted></video>
+    <div class="guide" id="guide"></div>
+    <div class="flash" id="flash" hidden></div>
+    <div class="hint">Fit the serial barcode inside the box</div>
+  </div>
+  <div class="row" id="camControls" hidden>
+    <button class="btn small" id="stop" type="button">Stop camera</button>
+    <button class="btn small" id="sound" type="button" aria-pressed="true">Sound: on</button>
+  </div>
+
+  <div id="status" class="status" aria-live="polite">Tap <b>Start camera</b> and allow camera access. Each serial is added the moment it's read.</div>
+
+  <form class="manual" id="manualForm" autocomplete="off">
+    <input id="manual" placeholder="Type a serial if the barcode won't scan" maxlength="20" spellcheck="false">
+    <button class="btn small" type="submit">Add</button>
+  </form>
+
+  <div class="listhead"><div class="count"><span id="count">0</span> serials</div><div class="sub">Saved on this phone</div></div>
+  <ol id="list"><li class="empty">No serials yet. They appear here as you scan, newest first.</li></ol>
+
+  <div class="row">
+    <button class="btn small" id="share" type="button">Share CSV</button>
+    <button class="btn small" id="dl" type="button">Download CSV</button>
+    <button class="btn small" id="copy" type="button">Copy serials</button>
+    <button class="btn small" id="clear" type="button">Clear list</button>
+  </div>
+  <div class="confirm" id="clearConfirm" hidden>Delete all <b id="cc"></b> serials?
+    <button class="btn small" id="clearYes" type="button">Delete all</button>
+    <button class="btn small" id="clearNo" type="button">Cancel</button></div>
+
+  <ul class="tips">
+    <li>Hold the phone so the barcode lines run across the box. For a sideways sticker, turn the phone too; both directions work.</li>
+    <li>A beep and a green tag mean the serial was added. A brown tag means it was already in the list.</li>
+    <li>The list stays on this phone in this browser, even if you close the page. Share or download it when you're done.</li>
+  </ul>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const Z = window.ZXing;
+const statusEl = $("status"), listEl = $("list");
+let scans = new Map(), lastAdded = null, soundOn = true;
+
+// ---------- serial picking ----------
+function pickSerial(raw){
+  let t = String(raw||"").trim();
+  const m = t.match(/[?&]sn=([A-Za-z0-9]+)/i);                 // Lenovo eSupport QR: ...qrcode?sn=PF532R1W&mtm=...
+  if (m) t = m[1]; else if (/^https?:/i.test(t)) return null;
+  t = t.toUpperCase().replace(/[\s-]/g,"");
+  if (/^1S[A-Z0-9]{12,}$/.test(t)) t = t.slice(-8);            // Lenovo black label barcode: 1S + type number + serial
+  if (!/^[A-Z0-9]{6,14}$/.test(t)) return null;                // drops the 20S1 model code, UUIDs and junk
+  if (/^\d+$/.test(t) || !/[A-Z]/.test(t)) return null;         // drops PO numbers
+  return t;
+}
+
+// ---------- storage ----------
+function save(){ try{ localStorage.setItem("serials", JSON.stringify([...scans.values()])); }catch(e){} }
+try{ JSON.parse(localStorage.getItem("serials")||"[]").forEach(x=>scans.set(x.serial,x)); }catch(e){}
+
+function render(){
+  const arr = [...scans.values()].sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+  $("count").textContent = arr.length;
+  if (!arr.length){ listEl.innerHTML = '<li class="empty">No serials yet. They appear here as you scan, newest first.</li>'; return; }
+  listEl.innerHTML = "";
+  arr.forEach((x,i)=>{
+    const li = document.createElement("li"); if (x.serial === lastAdded) li.className = "fresh";
+    const n = document.createElement("span"); n.className = "n"; n.textContent = arr.length - i;
+    const s = document.createElement("span"); s.className = "s"; s.textContent = x.serial;
+    const t = document.createElement("span"); t.className = "t"; t.textContent = new Date(x.at).toLocaleTimeString() + (x.source==="typed" ? " · typed" : ""); s.appendChild(t);
+    const d = document.createElement("button"); d.className = "del"; d.type = "button"; d.textContent = "Remove"; d.setAttribute("aria-label","Remove "+x.serial);
+    d.onclick = ()=>{ scans.delete(x.serial); save(); render(); };
+    li.append(n,s,d); listEl.appendChild(li);
+  });
+}
+function add(serial, source){
+  if (scans.has(serial)) return false;
+  scans.set(serial,{serial, at:new Date().toISOString(), source}); lastAdded = serial; save(); render(); return true;
+}
+function show(kind, html){ statusEl.className = "status " + (kind||""); statusEl.innerHTML = html; }
+
+// ---------- sound ----------
+let actx = null;
+function beep(ok){
+  if (!soundOn) return;
+  try{
+    actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 1320 : 440; g.gain.value = 0.08;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.12 : 0.2));
+  }catch(e){}
+  try{ navigator.vibrate && navigator.vibrate(ok ? 60 : [40,40,40]); }catch(e){}
+}
+
+// ---------- live scanning ----------
+const video = $("video"), work = document.createElement("canvas"), wctx = work.getContext("2d",{willReadFrequently:true});
+let stream = null, running = false, frame = 0, candidate = null, candHits = 0, coolUntil = {}, flashTimer = null;
+// Two readers: barcodes (thorough, both directions) and QR codes (for the Lenovo eSupport sticker).
+function makeReader(formats, harder){
+  const h = new Map(); h.set(Z.DecodeHintType.POSSIBLE_FORMATS, formats);
+  if (harder) h.set(Z.DecodeHintType.TRY_HARDER, true);
+  const r = new Z.MultiFormatReader(); r.setHints(h); return r;
+}
+const reader1D = makeReader([Z.BarcodeFormat.CODE_39, Z.BarcodeFormat.CODE_128], true);
+const readerQR = makeReader([Z.BarcodeFormat.QR_CODE], false);
+function decodeWith(reader){
+  for (const B of [Z.HybridBinarizer, Z.GlobalHistogramBinarizer]){
+    try{ return reader.decodeWithState(new Z.BinaryBitmap(new B(new Z.HTMLCanvasElementLuminanceSource(work)))); }catch(e){}
+  }
+  return null;
+}
+function blank(res){
+  const p = res.getResultPoints(); if (!p || p.length < 2) return false;
+  wctx.save(); wctx.fillStyle = "#fff";
+  if (res.getBarcodeFormat() === Z.BarcodeFormat.QR_CODE){
+    const xs = p.map(q=>q.getX()), ys = p.map(q=>q.getY());
+    const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys), pad=Math.max(x1-x0,y1-y0)*0.4;
+    wctx.fillRect(x0-pad,y0-pad,x1-x0+pad*2,y1-y0+pad*2);
+  } else {
+    const a = p[0], b = p[p.length-1], dx = b.getX()-a.getX(), dy = b.getY()-a.getY(), len = Math.hypot(dx,dy);
+    wctx.translate((a.getX()+b.getX())/2,(a.getY()+b.getY())/2); wctx.rotate(Math.atan2(dy,dx));
+    wctx.fillRect(-len*0.65,-work.height*0.03,len*1.3,work.height*0.06);
+  }
+  wctx.restore(); return true;
+}
+// Grab the area inside the guide box ("band"), or the whole visible picture ("full", used for QR codes).
+function grab(mode){
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return false;
+  const el = video.getBoundingClientRect(), scale = Math.max(el.width/vw, el.height/vh);
+  const shownW = el.width/scale, shownH = el.height/scale, offX = (vw-shownW)/2, offY = (vh-shownH)/2;
+  let sx, sy, sw, sh;
+  if (mode === "band"){ sx = offX + shownW*0.04; sw = shownW*0.92; sy = offY + shownH*0.22; sh = shownH*0.56; }
+  else { sx = offX; sw = shownW; sy = offY; sh = shownH; }
+  const target = 1400, k = Math.min(1.6, target/Math.max(sw,sh));
+  const W = Math.round(sw*k), H = Math.round(sh*k);
+  work.width = W; work.height = H; wctx.drawImage(video,sx,sy,sw,sh,0,0,W,H);
+  return true;
+}
+function scanFrame(){
+  if (!running) return;
+  frame++;
+  const t0 = performance.now();
+  if (grab("band")){
+    let found = null;
+    for (let i=0;i<3 && !found;i++){                 // barcodes: skip the 20S1 model code by hiding it and looking again
+      const r = decodeWith(reader1D); if (!r) break;
+      found = pickSerial(r.getText());
+      if (!found && !blank(r)) break;
+    }
+    if (!found && grab("full")){ const q = decodeWith(readerQR); if (q) found = pickSerial(q.getText()); }
+    if (found) onRead(found);
+  }
+  window.__lastMs = performance.now() - t0;
+  setTimeout(()=>requestAnimationFrame(scanFrame), 60);
+}
+function onRead(serial){
+  // need two matching reads in a row before accepting, to avoid misreads
+  if (serial !== candidate){ candidate = serial; candHits = 1; return; }
+  if (++candHits < 2) return;
+  const now = Date.now(); if ((coolUntil[serial]||0) > now) return;
+  coolUntil[serial] = now + 4000; candidate = null; candHits = 0;
+  const isNew = add(serial,"scan");
+  beep(isNew);
+  const f = $("flash"); f.textContent = (isNew ? "✓ " : "Already listed · ") + serial; f.className = "flash" + (isNew ? "" : " dup"); f.hidden = false;
+  $("guide").classList.add("hit");
+  clearTimeout(flashTimer); flashTimer = setTimeout(()=>{ f.hidden = true; $("guide").classList.remove("hit"); }, 1600);
+  show(isNew ? "ok" : "", isNew ? `Added <b class="big">${serial}</b>. Move to the next laptop.` : `<b class="big">${serial}</b> is already in the list.`);
+}
+async function start(){
+  if (!Z){ show("warn","The barcode reader didn't load. Check the internet connection and reload the page."); return; }
+  if (!navigator.mediaDevices?.getUserMedia){ show("warn","This browser can't open the camera. Open the page in Safari or Chrome."); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}}});
+  }catch(e){
+    show("warn", e && e.name === "NotAllowedError" ? "Camera access was blocked. Allow the camera for this site in your browser settings, then tap Start camera again." : "The camera couldn't be opened. Close other apps that use it and try again.");
+    return;
+  }
+  try{ const tr = stream.getVideoTracks()[0]; await tr.applyConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){}
+  video.srcObject = stream; await video.play().catch(()=>{});
+  beep.prime = true; try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){}
+  $("viewer").hidden = false; $("camControls").hidden = false; $("start").hidden = true;
+  running = true; show("", "Scanning. Hold each label steady inside the box for a moment.");
+  requestAnimationFrame(scanFrame);
+}
+function stop(){
+  running = false; if (stream) stream.getTracks().forEach(t=>t.stop()); stream = null;
+  $("viewer").hidden = true; $("camControls").hidden = true; $("start").hidden = false; $("start").textContent = "Resume camera";
+  show("", `Camera stopped. ${scans.size} serials in the list.`);
+}
+$("start").onclick = start;
+$("stop").onclick = stop;
+$("sound").onclick = ()=>{ soundOn = !soundOn; $("sound").textContent = "Sound: " + (soundOn ? "on" : "off"); $("sound").setAttribute("aria-pressed", soundOn); };
+document.addEventListener("visibilitychange", ()=>{ if (document.hidden && running) stop(); });
+
+// ---------- manual entry ----------
+$("manualForm").addEventListener("submit", e=>{
+  e.preventDefault(); const v = $("manual").value.toUpperCase().replace(/[\s-]/g,"");
+  if (!/^[A-Z0-9]{4,20}$/.test(v)){ show("warn","That doesn't look like a serial. Use letters and numbers only, for example PF22CSHF."); return; }
+  const isNew = add(v,"typed"); $("manual").value = "";
+  show(isNew ? "ok" : "", isNew ? `Added <b class="big">${v}</b>.` : `<b class="big">${v}</b> is already in the list.`);
+});
+
+// ---------- export ----------
+const ordered = () => [...scans.values()].sort((a,b)=>(a.at||"").localeCompare(b.at||""));
+const csv = () => "Serial,Scanned at,Source\n" + ordered().map(x=>`${x.serial},${x.at},${x.source}`).join("\n") + "\n";
+const fname = () => "laptop-serials-" + new Date().toISOString().slice(0,10) + ".csv";
+function empty(){ if (scans.size) return false; show("warn","The list is empty."); return true; }
+$("share").onclick = async ()=>{
+  if (empty()) return;
+  const file = new File([csv()], fname(), {type:"text/csv"});
+  if (navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file], title:"Laptop serials"}); }catch(e){}
+  } else show("warn","Sharing isn't supported in this browser. Use Download CSV or Copy serials.");
+};
+$("dl").onclick = ()=>{
+  if (empty()) return;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv()],{type:"text/csv"})); a.download = fname();
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+};
+$("copy").onclick = async ()=>{
+  if (empty()) return;
+  const txt = ordered().map(x=>x.serial).join("\n");
+  try{ await navigator.clipboard.writeText(txt); show("ok",`Copied ${scans.size} serials.`); }
+  catch(e){ statusEl.className = "status"; statusEl.textContent = "Copy didn't work here. Select the text below and copy it:"; const ta = document.createElement("textarea"); ta.value = txt; statusEl.appendChild(ta); ta.select(); }
+};
+$("clear").onclick = ()=>{ if (!scans.size) return; $("cc").textContent = scans.size; $("clearConfirm").hidden = false; };
+$("clearNo").onclick = ()=> $("clearConfirm").hidden = true;
+$("clearYes").onclick = ()=>{ scans.clear(); save(); render(); $("clearConfirm").hidden = true; show("","List cleared."); };
+
+render();
+})();
+</script>
+</body>
+</html>
