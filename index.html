@@ -61,6 +61,9 @@ ol{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius
 .tips{color:var(--muted);font-size:13px;margin:0;padding-left:18px}
 .confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
 textarea{width:100%;height:120px;font-family:var(--f-mono)}
+.ipad{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.ipad h2{font-size:16px;margin:0}
+#ipadText{height:auto;min-height:64px;font:inherit;font-family:var(--f-mono);padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
 </style>
 </head>
 <body>
@@ -88,6 +91,13 @@ textarea{width:100%;height:120px;font-family:var(--f-mono)}
     <input id="manual" placeholder="Type a serial if the barcode won't scan" maxlength="20" spellcheck="false">
     <button class="btn small" type="submit">Add</button>
   </form>
+
+  <section class="ipad" aria-labelledby="ipadH">
+    <h2 id="ipadH">iPads: read the engraved serial</h2>
+    <label for="ipadText" class="sub">Tap the box, then tap <b>Scan Text</b> on the keyboard (or long-press the box and choose Scan Text). Point at the two small lines under "iPad" and tap <b>Insert</b>. The serial and model are added automatically.</label>
+    <textarea id="ipadText" rows="2" placeholder="Tap here, then Scan Text" autocomplete="off" autocapitalize="characters" spellcheck="false"></textarea>
+    <div class="row"><button class="btn small" id="ipadAdd" type="button">Add from text</button></div>
+  </section>
 
   <div class="listhead"><div class="count"><span id="count">0</span> serials</div><div class="sub">Saved on this phone</div></div>
   <ol id="list"><li class="empty">No serials yet. They appear here as you scan, newest first.</li></ol>
@@ -142,15 +152,17 @@ function render(){
     const li = document.createElement("li"); if (x.serial === lastAdded) li.className = "fresh";
     const n = document.createElement("span"); n.className = "n"; n.textContent = arr.length - i;
     const s = document.createElement("span"); s.className = "s"; s.textContent = x.serial;
-    const t = document.createElement("span"); t.className = "t"; t.textContent = new Date(x.at).toLocaleTimeString() + (x.source==="typed" ? " · typed" : ""); s.appendChild(t);
+    const t = document.createElement("span"); t.className = "t"; t.textContent = new Date(x.at).toLocaleTimeString() + (x.model ? " · " + x.model + " (" + x.modelNo + ")" : "") + (x.source==="typed" ? " · typed" : x.source==="text" ? " · read from text" : ""); s.appendChild(t);
     const d = document.createElement("button"); d.className = "del"; d.type = "button"; d.textContent = "Remove"; d.setAttribute("aria-label","Remove "+x.serial);
     d.onclick = ()=>{ scans.delete(x.serial); save(); render(); };
     li.append(n,s,d); listEl.appendChild(li);
   });
 }
-function add(serial, source){
+function add(serial, source, modelNo){
   if (scans.has(serial)) return false;
-  scans.set(serial,{serial, at:new Date().toISOString(), source}); lastAdded = serial; save(); render(); return true;
+  const rec = {serial, at:new Date().toISOString(), source};
+  if (modelNo){ rec.modelNo = modelNo; rec.model = IPAD_MODELS[modelNo] || "Unknown model"; }
+  scans.set(serial, rec); lastAdded = serial; save(); render(); return true;
 }
 function show(kind, html){ statusEl.className = "status " + (kind||""); statusEl.innerHTML = html; }
 
@@ -277,7 +289,7 @@ $("manualForm").addEventListener("submit", e=>{
 
 // ---------- export ----------
 const ordered = () => [...scans.values()].sort((a,b)=>(a.at||"").localeCompare(b.at||""));
-const csv = () => "Serial,Scanned at,Source\n" + ordered().map(x=>`${x.serial},${x.at},${x.source}`).join("\n") + "\n";
+const csv = () => "Serial,Model number,Model,Scanned at,Source\n" + ordered().map(x=>`${x.serial},${x.modelNo||""},"${x.model||""}",${x.at},${x.source}`).join("\n") + "\n";
 const fname = () => "laptop-serials-" + new Date().toISOString().slice(0,10) + ".csv";
 function empty(){ if (scans.size) return false; show("warn","The list is empty."); return true; }
 $("share").onclick = async ()=>{
@@ -301,6 +313,43 @@ $("copy").onclick = async ()=>{
 $("clear").onclick = ()=>{ if (!scans.size) return; $("cc").textContent = scans.size; $("clearConfirm").hidden = false; };
 $("clearNo").onclick = ()=> $("clearConfirm").hidden = true;
 $("clearYes").onclick = ()=>{ scans.clear(); save(); render(); $("clearConfirm").hidden = true; show("","List cleared."); };
+
+// ---------- iPads: parse text from iPhone Live Text ("Scan Text") ----------
+const IPAD_MODELS = {
+  A1893:"iPad 6th (Wi-Fi)", A1954:"iPad 6th (Wi-Fi + Cellular)",
+  A2197:"iPad 7th (Wi-Fi)", A2198:"iPad 7th (Wi-Fi + Cellular)", A2200:"iPad 7th (Wi-Fi + Cellular)",
+  A2270:"iPad 8th (Wi-Fi)", A2428:"iPad 8th (Wi-Fi + Cellular)", A2429:"iPad 8th (Wi-Fi + Cellular)", A2430:"iPad 8th (Wi-Fi + Cellular)",
+  A2602:"iPad 9th (Wi-Fi)", A2603:"iPad 9th (Wi-Fi + Cellular)", A2604:"iPad 9th (Wi-Fi + Cellular)", A2605:"iPad 9th (Wi-Fi + Cellular)",
+  A2152:"iPad Air 3rd (Wi-Fi)", A2123:"iPad Air 3rd (Wi-Fi + Cellular)", A2153:"iPad Air 3rd (Wi-Fi + Cellular)", A2154:"iPad Air 3rd (Wi-Fi + Cellular)",
+  A2316:"iPad Air 4th (Wi-Fi)", A2324:"iPad Air 4th (Wi-Fi + Cellular)", A2325:"iPad Air 4th (Wi-Fi + Cellular)", A2072:"iPad Air 4th (Wi-Fi + Cellular)",
+  A2588:"iPad Air 5th (Wi-Fi)", A2589:"iPad Air 5th (Wi-Fi + Cellular)", A2591:"iPad Air 5th (Wi-Fi + Cellular)",
+  A1701:"iPad Pro 10.5-inch (Wi-Fi)", A1709:"iPad Pro 10.5-inch (Wi-Fi + Cellular)", A1852:"iPad Pro 10.5-inch (Wi-Fi + Cellular)",
+  A1980:"iPad Pro 11-inch 1st (Wi-Fi)", A2013:"iPad Pro 11-inch 1st (Wi-Fi + Cellular)", A1934:"iPad Pro 11-inch 1st (Wi-Fi + Cellular)", A1979:"iPad Pro 11-inch 1st (Wi-Fi + Cellular)",
+  A2228:"iPad Pro 11-inch 2nd (Wi-Fi)", A2068:"iPad Pro 11-inch 2nd (Wi-Fi + Cellular)", A2230:"iPad Pro 11-inch 2nd (Wi-Fi + Cellular)", A2231:"iPad Pro 11-inch 2nd (Wi-Fi + Cellular)",
+  A2229:"iPad Pro 12.9-inch 4th (Wi-Fi)", A2069:"iPad Pro 12.9-inch 4th (Wi-Fi + Cellular)", A2232:"iPad Pro 12.9-inch 4th (Wi-Fi + Cellular)", A2233:"iPad Pro 12.9-inch 4th (Wi-Fi + Cellular)"
+};
+function parseIpad(text){
+  const t = String(text||"").toUpperCase().replace(/\s+/g," ");
+  let serial = null, modelNo = null;
+  const m = t.match(/SER[I1L]A[L1I][\s:.;,]*([A-Z0-9]{10,12})/) || t.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])([A-Z0-9]{12}|[A-Z0-9]{10})\b/);
+  if (m) serial = m[1].replace(/O/g,"0").replace(/I/g,"1");   // Apple serials never use the letters O or I
+  const mm = t.match(/MODE[L1I][\s:.;,]*A?\s?(\d{4})/) || t.match(/\bA(\d{4})\b/);
+  if (mm) modelNo = "A" + mm[1];
+  if (serial && /^A\d{4}$/.test(serial)) serial = null;
+  return {serial, modelNo};
+}
+function addIpadFromText(){
+  const box = $("ipadText"); const {serial, modelNo} = parseIpad(box.value);
+  if (!box.value.trim()) return;
+  if (!serial){ show("warn","No serial found in that text. Scan the line that starts with \"Serial\", or type the serial in the box above."); return; }
+  const isNew = add(serial, "text", modelNo); beep(isNew);
+  const mtxt = modelNo ? ` · ${IPAD_MODELS[modelNo] || "unknown model"} (${modelNo})` : " · model not read";
+  show(isNew ? "ok" : "", (isNew ? `Added <b class="big">${serial}</b>` : `<b class="big">${serial}</b> is already in the list`) + mtxt + ". Check it against the iPad, then scan the next one.");
+  box.value = "";
+}
+let ipadTimer = null;
+$("ipadText").addEventListener("input", ()=>{ clearTimeout(ipadTimer); ipadTimer = setTimeout(()=>{ if (parseIpad($("ipadText").value).serial) addIpadFromText(); }, 700); });
+$("ipadAdd").onclick = addIpadFromText;
 
 render();
 })();
