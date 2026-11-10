@@ -61,6 +61,9 @@ ol{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius
 .tips{color:var(--muted);font-size:13px;margin:0;padding-left:18px}
 .confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}
 textarea{width:100%;height:120px;font-family:var(--f-mono)}
+.modes{display:flex;gap:8px}
+.modes .mode{flex:1 1 0}
+.mode.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .ipad{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
 .ipad h2{font-size:16px;margin:0}
 #ipadText{height:auto;min-height:64px;font:inherit;font-family:var(--f-mono);padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
@@ -70,15 +73,19 @@ textarea{width:100%;height:120px;font-family:var(--f-mono)}
 <div class="wrap">
   <header>
     <h1>Serial Scanner Live</h1>
-    <p class="sub">Point the camera at each laptop label. Only the serial number is kept, from the Serial barcode or the eSupport QR code.</p>
+    <p class="sub">Pick what you are scanning, then point the camera at each label. Laptops: the Serial barcode or eSupport QR code. iPads: the engraved text under "iPad" (serial and model number).</p>
   </header>
 
+  <div class="modes" role="radiogroup" aria-label="What are you scanning?">
+    <button class="btn small mode on" id="modeLaptop" type="button" role="radio" aria-checked="true">Laptops (barcode)</button>
+    <button class="btn small mode" id="modeIpad" type="button" role="radio" aria-checked="false">iPads (engraved text)</button>
+  </div>
   <button class="btn primary" id="start" type="button">Start camera</button>
   <div class="viewer" id="viewer" hidden>
     <video id="video" playsinline muted></video>
     <div class="guide" id="guide"></div>
     <div class="flash" id="flash" hidden></div>
-    <div class="hint">Fit the serial barcode inside the box</div>
+    <div class="hint" id="hint">Fit the serial barcode inside the box</div>
   </div>
   <div class="row" id="camControls" hidden>
     <button class="btn small" id="stop" type="button">Stop camera</button>
@@ -223,8 +230,55 @@ function grab(mode){
   work.width = W; work.height = H; wctx.drawImage(video,sx,sy,sw,sh,0,0,W,H);
   return true;
 }
+// ---------- iPad text reading (PaddleOCR, loaded only when iPad mode is used) ----------
+let mode = "laptop", ocr = null, ocrLoading = null, ocrBusy = false;
+async function joined(names, type){
+  const parts = await Promise.all(names.map(n => fetch(n).then(r => { if (!r.ok) throw new Error(n); return r.arrayBuffer(); })));
+  return URL.createObjectURL(new Blob(parts, {type}));
+}
+function loadOcr(){
+  if (ocr) return Promise.resolve(ocr);
+  if (ocrLoading) return ocrLoading;
+  ocrLoading = (async ()=>{
+    const [js, wasm, rec] = await Promise.all([
+      joined(["ocr-engine.js.part0","ocr-engine.js.part1"], "text/javascript"),
+      joined(["ort.wasm.part0","ort.wasm.part1"], "application/wasm"),
+      joined(["rec.onnx.part0","rec.onnx.part1"], "application/octet-stream")]);
+    await new Promise((ok, bad)=>{ const sc = document.createElement("script"); sc.src = js; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); });
+    const base = new URL("./", document.baseURI).href;
+    ocr = await window.makeOcr({ mjsUrl: base + "ort-wasm-simd-threaded.mjs", wasmUrl: wasm, det: base + "det.onnx", rec, dict: base + "keys.txt" });
+    return ocr;
+  })().catch(e=>{ ocrLoading = null; throw e; });
+  return ocrLoading;
+}
+async function ipadFrame(){
+  if (ocrBusy || !ocr || !grab("band")) return;
+  ocrBusy = true;
+  try{
+    const k = Math.min(1, 1600/Math.max(work.width, work.height));
+    const c = document.createElement("canvas"); c.width = Math.round(work.width*k); c.height = Math.round(work.height*k);
+    c.getContext("2d").drawImage(work,0,0,c.width,c.height);
+    const res = await ocr.detect(c.toDataURL("image/jpeg",0.92));
+    const items = Array.isArray(res) ? res : (res && (res.texts || res.lines)) || [];
+    const text = items.map(x=>x.text).join(" ");
+    const {serial, modelNo} = parseIpad(text);
+    if (serial) onRead(serial, modelNo);
+  }catch(e){}
+  ocrBusy = false;
+}
+function setMode(m){
+  mode = m;
+  $("modeLaptop").classList.toggle("on", m==="laptop"); $("modeLaptop").setAttribute("aria-checked", m==="laptop");
+  $("modeIpad").classList.toggle("on", m==="ipad"); $("modeIpad").setAttribute("aria-checked", m==="ipad");
+  $("hint").textContent = m==="ipad" ? "Fit the two small lines under \"iPad\" inside the box" : "Fit the serial barcode inside the box";
+  if (m==="ipad"){ show("", "iPad mode. The first time, the text reader downloads about 37 MB, so use Wi-Fi. After that it's saved in the browser."); loadOcr().then(()=>{ if (mode==="ipad") show("ok","Text reader ready. Hold each iPad's engraved text inside the box until it beeps (2–4 seconds)."); }, ()=> show("warn","The text reader didn't load. Check the connection and tap iPads again.")); }
+  else if (running) show("", "Laptop mode. Hold each label steady inside the box.");
+}
+$("modeLaptop").onclick = ()=> setMode("laptop");
+$("modeIpad").onclick = ()=> setMode("ipad");
 function scanFrame(){
   if (!running) return;
+  if (mode === "ipad"){ ipadFrame(); setTimeout(()=>requestAnimationFrame(scanFrame), 150); return; }
   frame++;
   const t0 = performance.now();
   if (grab("band")){
@@ -240,18 +294,20 @@ function scanFrame(){
   window.__lastMs = performance.now() - t0;
   setTimeout(()=>requestAnimationFrame(scanFrame), 60);
 }
-function onRead(serial){
+function onRead(serial, modelNo){
   // need two matching reads in a row before accepting, to avoid misreads
   if (serial !== candidate){ candidate = serial; candHits = 1; return; }
   if (++candHits < 2) return;
   const now = Date.now(); if ((coolUntil[serial]||0) > now) return;
   coolUntil[serial] = now + 4000; candidate = null; candHits = 0;
-  const isNew = add(serial,"scan");
+  const isNew = add(serial, mode==="ipad" ? "text" : "scan", modelNo);
   beep(isNew);
-  const f = $("flash"); f.textContent = (isNew ? "✓ " : "Already listed · ") + serial; f.className = "flash" + (isNew ? "" : " dup"); f.hidden = false;
+  const label = serial + (modelNo ? " · " + modelNo : "");
+  const f = $("flash"); f.textContent = (isNew ? "✓ " : "Already listed · ") + label; f.className = "flash" + (isNew ? "" : " dup"); f.hidden = false;
   $("guide").classList.add("hit");
   clearTimeout(flashTimer); flashTimer = setTimeout(()=>{ f.hidden = true; $("guide").classList.remove("hit"); }, 1600);
-  show(isNew ? "ok" : "", isNew ? `Added <b class="big">${serial}</b>. Move to the next laptop.` : `<b class="big">${serial}</b> is already in the list.`);
+  const mtxt = mode==="ipad" ? (modelNo ? ` · ${IPAD_MODELS[modelNo] || "unknown model"} (${modelNo})` : " · model number not read") : "";
+  show(isNew ? "ok" : "", isNew ? `Added <b class="big">${serial}</b>${mtxt}. Move to the next ${mode==="ipad"?"iPad":"laptop"}.` : `<b class="big">${serial}</b> is already in the list.`);
 }
 async function start(){
   if (!Z){ show("warn","The barcode reader didn't load. Check the internet connection and reload the page."); return; }
@@ -266,7 +322,9 @@ async function start(){
   video.srcObject = stream; await video.play().catch(()=>{});
   beep.prime = true; try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){}
   $("viewer").hidden = false; $("camControls").hidden = false; $("start").hidden = true;
-  running = true; show("", "Scanning. Hold each label steady inside the box for a moment.");
+  running = true;
+  if (mode==="ipad" && !ocr) show("", "Camera on. Waiting for the text reader to finish loading…");
+  else show("", "Scanning. Hold each label steady inside the box for a moment.");
   requestAnimationFrame(scanFrame);
 }
 function stop(){
@@ -331,7 +389,7 @@ const IPAD_MODELS = {
 function parseIpad(text){
   const t = String(text||"").toUpperCase().replace(/\s+/g," ");
   let serial = null, modelNo = null;
-  const m = t.match(/SER[I1L]A[L1I][\s:.;,]*([A-Z0-9]{10,12})/) || t.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])([A-Z0-9]{12}|[A-Z0-9]{10})\b/);
+  const m = t.match(/S[E3]R?[I1L]?A[L1I][\s:.;,]*([A-Z0-9]{12}|[A-Z0-9]{10})(?![A-Z0-9])/) || t.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])([A-Z0-9]{12}|[A-Z0-9]{10})\b/);
   if (m) serial = m[1].replace(/O/g,"0").replace(/I/g,"1");   // Apple serials never use the letters O or I
   const mm = t.match(/MODE[L1I][\s:.;,]*A?\s?(\d{4})/) || t.match(/\bA(\d{4})\b/);
   if (mm) modelNo = "A" + mm[1];
