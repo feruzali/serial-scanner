@@ -64,9 +64,6 @@ textarea{width:100%;height:120px;font-family:var(--f-mono)}
 .modes{display:flex;gap:8px}
 .modes .mode{flex:1 1 0}
 .mode.on{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
-.ipad{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
-.ipad h2{font-size:16px;margin:0}
-#ipadText{height:auto;min-height:64px;font:inherit;font-family:var(--f-mono);padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
 </style>
 </head>
 <body>
@@ -99,12 +96,6 @@ textarea{width:100%;height:120px;font-family:var(--f-mono)}
     <button class="btn small" type="submit">Add</button>
   </form>
 
-  <section class="ipad" aria-labelledby="ipadH">
-    <h2 id="ipadH">iPads: read the engraved serial</h2>
-    <label for="ipadText" class="sub">Tap the box, then tap <b>Scan Text</b> on the keyboard (or long-press the box and choose Scan Text). Point at the two small lines under "iPad" and tap <b>Insert</b>. The serial and model are added automatically.</label>
-    <textarea id="ipadText" rows="2" placeholder="Tap here, then Scan Text" autocomplete="off" autocapitalize="characters" spellcheck="false"></textarea>
-    <div class="row"><button class="btn small" id="ipadAdd" type="button">Add from text</button></div>
-  </section>
 
   <div class="listhead"><div class="count"><span id="count">0</span> serials</div><div class="sub">Saved on this phone</div></div>
   <ol id="list"><li class="empty">No serials yet. They appear here as you scan, newest first.</li></ol>
@@ -398,18 +389,6 @@ function parseIpad(text){
   if (serial && /^A\d{4}$/.test(serial)) serial = null;
   return {serial, modelNo};
 }
-function addIpadFromText(){
-  const box = $("ipadText"); const {serial, modelNo} = parseIpad(box.value);
-  if (!box.value.trim()) return;
-  if (!serial){ show("warn","No serial found in that text. Scan the line that starts with \"Serial\", or type the serial in the box above."); return; }
-  const isNew = add(serial, "text", modelNo); beep(isNew);
-  const mtxt = modelNo ? ` · ${IPAD_MODELS[modelNo] || "unknown model"} (${modelNo})` : " · model not read";
-  show(isNew ? "ok" : "", (isNew ? `Added <b class="big">${serial}</b>` : `<b class="big">${serial}</b> is already in the list`) + mtxt + ". Check it against the iPad, then scan the next one.");
-  box.value = "";
-}
-let ipadTimer = null;
-$("ipadText").addEventListener("input", ()=>{ clearTimeout(ipadTimer); ipadTimer = setTimeout(()=>{ if (parseIpad($("ipadText").value).serial) addIpadFromText(); }, 700); });
-$("ipadAdd").onclick = addIpadFromText;
 
 render();
 })();
