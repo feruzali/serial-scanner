@@ -389,7 +389,9 @@ const IPAD_MODELS = {
 function parseIpad(text){
   const t = String(text||"").toUpperCase().replace(/\s+/g," ");
   let serial = null, modelNo = null;
-  const m = t.match(/S[E3]R?[I1L]?A[L1I][\s:.;,]*([A-Z0-9]{12}|[A-Z0-9]{10})(?![A-Z0-9])/) || t.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])([A-Z0-9]{12}|[A-Z0-9]{10})\b/);
+  // the "Model A2123" text must never be taken for a serial, so remove it before looking for a bare serial
+  const noModel = t.replace(/M[O0]DE[L1I]\s*[:.]?\s*A?\s?\d{4}/g, " ");
+  const m = t.match(/S[E3]R?[I1L]?A[L1I][\s:.;,]*([A-Z0-9]{12}|[A-Z0-9]{10})(?![A-Z0-9])/) || noModel.match(/\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])(?![A-Z]{4,}A?\d{4}\b)([A-Z0-9]{12}|[A-Z0-9]{10})\b/);
   if (m) serial = m[1].replace(/O/g,"0").replace(/I/g,"1");   // Apple serials never use the letters O or I
   const mm = t.match(/MODE[L1I][\s:.;,]*A?\s?(\d{4})/) || t.match(/\bA(\d{4})\b/);
   if (mm) modelNo = "A" + mm[1];
